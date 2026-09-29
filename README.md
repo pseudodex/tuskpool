@@ -2,8 +2,7 @@
 
 An asyncio task pool with capped concurrency and bounded memory.
 
-<details open>
-<summary><h2 id="contents">Contents</h2></summary>
+## Contents
 
 - [Why](#why)
 - [Install](#install)
@@ -23,10 +22,7 @@ An asyncio task pool with capped concurrency and bounded memory.
 - [Development](#development)
 - [License](#license)
 
-</details>
-
-<details open>
-<summary><h2 id="why">Why</h2></summary>
+## Why
 
 Plain `asyncio.gather` over a big list creates every task up front. A `TaskGroup` with a `Semaphore` still creates every task before the semaphore lets it run. This pool takes a slot *before* it pulls the next item, so a huge (or endless) input never sits in memory.
 
@@ -35,10 +31,7 @@ Plain `asyncio.gather` over a big list creates every task up front. A `TaskGroup
 - Fully typed (`py.typed`); result types are inferred from the function you pass
 - Sync and async iterables both work as input
 
-</details>
-
-<details open>
-<summary><h2 id="install">Install</h2></summary>
+## Install
 
 With pip:
 
@@ -54,10 +47,7 @@ uv add tuskpool
 
 To work on the library itself, see [Development](#development).
 
-</details>
-
-<details open>
-<summary><h2 id="quick-start">Quick start</h2></summary>
+## Quick start
 
 ```python
 import asyncio
@@ -84,10 +74,7 @@ asyncio.run(main())
 
 `urls` can be a list, a generator, or an async generator. It is read lazily.
 
-</details>
-
-<details open>
-<summary><h2 id="api">API</h2></summary>
+## API
 
 | Member | What it does |
 |---|---|
@@ -102,29 +89,19 @@ asyncio.run(main())
 | `pool.active` | Jobs currently alive. |
 | `JobTimeout` | Raised for a job that exceeded `timeout`. Subclass of `TimeoutError`. |
 
-</details>
-
-<details open>
-<summary><h2 id="how-memory-stays-bounded">How memory stays bounded</h2></summary>
+## How memory stays bounded
 
 - A slot is taken before the next item is pulled from your iterable.
 - `map` and `as_completed` never run more than `max_workers` items ahead of the code consuming them. A slow consumer slows the pool down; results do not pile up.
 - The pool never keeps results. `create_task` returns a `Task`, and a finished task holds its result, so don't keep millions of them.
 
-</details>
+## Behavior worth knowing
 
-<details open>
-<summary><h2 id="behavior-worth-knowing">Behavior worth knowing</h2></summary>
-
-<details open>
-<summary><h3 id="errors">Errors</h3></summary>
+### Errors
 
 In `map` and `as_completed` the first failure is raised to the consumer and the remaining jobs are cancelled. `map` raises it only once every earlier item has been yielded, so a stuck earlier item delays the error. Every failed job is also logged at `ERROR` on the `tuskpool.pool` logger.
 
-</details>
-
-<details open>
-<summary><h3 id="stopping-early">Stopping early</h3></summary>
+### Stopping early
 
 `break` does not close an async generator immediately; the remaining jobs are cancelled a tick later. To cancel right away, wrap the stream:
 
@@ -137,36 +114,21 @@ async with aclosing(pool.map(fetch, urls)) as results:
             break
 ```
 
-</details>
-
-<details open>
-<summary><h3 id="timeouts">Timeouts</h3></summary>
+### Timeouts
 
 `timeout` limits each job, not the whole run, and does not count time spent waiting for a slot. A job's own `TimeoutError` is a normal failure, not a `JobTimeout`.
 
-</details>
-
-<details open>
-<summary><h3 id="counters">Counters</h3></summary>
+### Counters
 
 They are updated one event-loop iteration after a job ends. `join()` and `shutdown()` guarantee they are current when they return.
 
-</details>
-
-<details open>
-<summary><h3 id="dont-nest">Don't nest</h3></summary>
+### Don't nest
 
 Don't use a pool from inside one of its own jobs. Every slot can end up held by a job that is waiting for a slot.
 
-</details>
+## Compared with other libraries
 
-</details>
-
-<details open>
-<summary><h2 id="compared-with-other-libraries">Compared with other libraries</h2></summary>
-
-<details open>
-<summary><h3 id="measured-behavior">Measured behavior</h3></summary>
+### Measured behavior
 
 The same job (1 ms of `asyncio.sleep`) was run 2,000 times with `max_workers` / `max_at_once` / `task_limit` set to 10, and a consumer that takes 3 ms per result, so it is slower than the jobs. The last column is the most jobs that had started but whose results had not yet been consumed. A memory-bounded library keeps it near the limit.
 
@@ -189,10 +151,7 @@ The same job (1 ms of `asyncio.sleep`) was run 2,000 times with `max_workers` / 
   python benchmarks/compare.py
   ```
 
-</details>
-
-<details open>
-<summary><h3 id="features">Features</h3></summary>
+### Features
 
 | | tuskpool | aiostream | aiometer |
 |---|---|---|---|
@@ -205,10 +164,7 @@ The same job (1 ms of `asyncio.sleep`) was run 2,000 times with `max_workers` / 
 | Dependencies | none | `typing-extensions` | `anyio` (and `exceptiongroup` before Python 3.11) |
 | Python | 3.11+ | 3.10+ | 3.8+ |
 
-</details>
-
-<details open>
-<summary><h3 id="choosing-between-tuskpool-and-aiostream">Choosing between tuskpool and aiostream</h3></summary>
+### Choosing between tuskpool and aiostream
 
 aiostream is the closest alternative. Both keep memory bounded the same way, and on failure both cancel the running jobs and close the input, so those are not reasons to pick one over the other. What differed in testing:
 
@@ -238,12 +194,7 @@ To reproduce the two rows above:
 python benchmarks/shared_limit_and_timeout.py   # needs the bench extra
 ```
 
-</details>
-
-</details>
-
-<details open>
-<summary><h2 id="development">Development</h2></summary>
+## Development
 
 ```bash
 git clone https://github.com/pseudodex/tuskpool.git
@@ -258,11 +209,6 @@ python benchmarks/shared_limit_and_timeout.py  # needs the bench extra
 
 The suite is run on Python 3.11, 3.12 and 3.13. Behavior of `asyncio.gather` changed in 3.12, so run it on more than one version if you change the waiting code.
 
-</details>
-
-<details open>
-<summary><h2 id="license">License</h2></summary>
+## License
 
 [MIT](https://github.com/pseudodex/tuskpool/blob/main/LICENSE)
-
-</details>
