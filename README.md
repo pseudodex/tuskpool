@@ -53,7 +53,9 @@ To work on the library itself, see [Development](#development).
 import asyncio
 from tuskpool import TaskPool
 
+
 async def fetch(url: str) -> bytes: ...
+
 
 async def main() -> None:
     async with TaskPool(max_workers=10, timeout=5) as pool:
@@ -68,6 +70,7 @@ async def main() -> None:
         # A single job
         task = await pool.create_task(fetch, "https://example.com")
         page = await task
+
 
 asyncio.run(main())
 ```
@@ -199,12 +202,14 @@ python benchmarks/shared_limit_and_timeout.py   # needs the bench extra
 ```bash
 git clone https://github.com/pseudodex/tuskpool.git
 cd tuskpool
-pip install -e ".[dev]"   # or: uv sync --extra dev
-pytest                    # 124 tests
-pytest --cov=tuskpool --cov-branch
-mypy                      # strict
-python benchmarks/compare.py                    # needs the bench extra
-python benchmarks/shared_limit_and_timeout.py  # needs the bench extra
+uv sync
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright            # strict
+uv run lint-imports       # architecture contracts
+uv run pytest             # fails below 100% line and branch coverage
+uv run --extra bench python benchmarks/compare.py
+uv run --extra bench python benchmarks/shared_limit_and_timeout.py
 ```
 
 The suite is run on Python 3.11, 3.12 and 3.13. Behavior of `asyncio.gather` changed in 3.12, so run it on more than one version if you change the waiting code.
