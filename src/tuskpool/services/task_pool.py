@@ -15,6 +15,7 @@ from typing import Any, ParamSpec, Self, TypeVar
 from tuskpool.domain import check_limits
 from tuskpool.errors import JobTimeout
 from tuskpool.services.iteration import as_async_iter
+from tuskpool.services.timeout import run_with_timeout
 
 
 # Not __name__: the README documents this logger name, and users configure it.
@@ -274,18 +275,7 @@ class TaskPool:
     async def _run(
         self, fn: Callable[..., Awaitable[R]], args: tuple[Any, ...], kwargs: dict[str, Any]
     ) -> R:
-        if self._timeout is None:
-            return await fn(*args, **kwargs)
-
-        timer = asyncio.timeout(self._timeout)
-        try:
-            async with timer:
-                return await fn(*args, **kwargs)
-        except TimeoutError:
-            if timer.expired():
-                msg = f"job exceeded {self._timeout}s"
-                raise JobTimeout(msg) from None
-            raise  # the job's own TimeoutError
+        return await run_with_timeout(lambda: fn(*args, **kwargs), self._timeout)
 
     def _on_done(self, task: asyncio.Task[Any]) -> None:
         self._release(task)
