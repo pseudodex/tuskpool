@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from tuskpool import JobTimeout, TaskPool
-from tuskpool.pool import _as_async_iter
+from tuskpool.services.iteration import as_async_iter
 
 
 @pytest.fixture(autouse=True)
@@ -987,7 +987,7 @@ class TestAsAsyncIter:
                 pulled += 1
                 yield i
 
-        it = _as_async_iter(gen())
+        it = as_async_iter(gen())
         assert pulled == 0
         assert await anext(it) == 0
         assert pulled == 1
@@ -998,11 +998,11 @@ class TestAsAsyncIter:
             for i in range(3):
                 yield i
 
-        assert [x async for x in _as_async_iter(gen())] == [0, 1, 2]
+        assert [x async for x in as_async_iter(gen())] == [0, 1, 2]
 
     async def test_closing_closes_the_wrapped_async_generator(self) -> None:
         probe = Probe()
-        it = _as_async_iter(probe.source(10))
+        it = as_async_iter(probe.source(10))
         await anext(it)
         assert not probe.source_closed
         await it.aclose()
@@ -1016,16 +1016,16 @@ class TestAsAsyncIter:
             async def __anext__(self) -> int:
                 return 1
 
-        it = _as_async_iter(Plain())
+        it = as_async_iter(Plain())
         assert await anext(it) == 1
         await it.aclose()
 
     async def test_exhausted_source_stays_exhausted(self) -> None:
-        it = _as_async_iter([1])
+        it = as_async_iter([1])
         assert await anext(it) == 1
         for _ in range(3):
             with pytest.raises(StopAsyncIteration):
                 await anext(it)
 
     async def test_empty(self) -> None:
-        assert [x async for x in _as_async_iter([])] == []
+        assert [x async for x in as_async_iter([])] == []

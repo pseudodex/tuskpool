@@ -1,3 +1,5 @@
-from .pool import JobTimeout, TaskPool
+from tuskpool.errors import JobTimeout
+from tuskpool.services import TaskPool
+
 
 __all__ = ["JobTimeout", "TaskPool"]
