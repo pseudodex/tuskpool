@@ -1,7 +1,14 @@
 import asyncio
 import logging
 from collections import deque
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+)
 from types import TracebackType
 from typing import Any, ParamSpec, Self, TypeVar
 
@@ -106,7 +113,7 @@ class TaskPool:
         self,
         fn: Callable[[T], Awaitable[R]],
         iterable: Iterable[T] | AsyncIterable[T],
-    ) -> AsyncIterator[R]:
+    ) -> AsyncGenerator[R, None]:
         """Run `fn` on every item and yield the results in input order.
 
         At most `max_workers` items are started ahead of the consumer, so a slow
@@ -146,7 +153,7 @@ class TaskPool:
         self,
         fn: Callable[[T], Awaitable[R]],
         iterable: Iterable[T] | AsyncIterable[T],
-    ) -> AsyncIterator[R]:
+    ) -> AsyncGenerator[R, None]:
         """Run `fn` on every item and yield the results as they finish.
 
         Same bounds and error behaviour as `map`, but not in input order.
@@ -190,7 +197,8 @@ class TaskPool:
         while self._tasks:
             await asyncio.wait(tuple(self._tasks))
 
-    async def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+    # Positional `wait` is public API, matching Executor.shutdown.
+    async def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:  # noqa: FBT001, FBT002
         """Refuse new jobs and, by default, wait for the running ones.
 
         Args:
@@ -210,11 +218,13 @@ class TaskPool:
 
     async def _acquire(self) -> None:
         if self._closed:
-            raise RuntimeError("Cannot add tasks to a closed pool.")
+            msg = "Cannot add tasks to a closed pool."
+            raise RuntimeError(msg)
         await self._slots.acquire()
         if self._closed:  # closed while waiting for a slot
             self._slots.release()
-            raise RuntimeError("Pool was closed while waiting for a slot.")
+            msg = "Pool was closed while waiting for a slot."
+            raise RuntimeError(msg)
 
     async def _fill(
         self,
@@ -246,7 +256,9 @@ class TaskPool:
             raise
         return self._spawn(fn, (item,), {})
 
-    def _spawn(self, fn: Callable[..., Awaitable[Any]], args: tuple[Any, ...], kwargs: dict[str, Any]) -> asyncio.Task[Any]:
+    def _spawn(
+        self, fn: Callable[..., Awaitable[R]], args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> asyncio.Task[R]:
         """Create the task. The caller must already hold a slot."""
         try:
             task = asyncio.create_task(self._run(fn, args, kwargs))
@@ -259,7 +271,9 @@ class TaskPool:
         task.add_done_callback(self._on_done)
         return task
 
-    async def _run(self, fn: Callable[..., Awaitable[Any]], args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+    async def _run(
+        self, fn: Callable[..., Awaitable[R]], args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> R:
         if self._timeout is None:
             return await fn(*args, **kwargs)
 
@@ -269,7 +283,8 @@ class TaskPool:
                 return await fn(*args, **kwargs)
         except TimeoutError:
             if timer.expired():
-                raise JobTimeout(f"job exceeded {self._timeout}s") from None
+                msg = f"job exceeded {self._timeout}s"
+                raise JobTimeout(msg) from None
             raise  # the job's own TimeoutError
 
     def _on_done(self, task: asyncio.Task[Any]) -> None:
@@ -297,7 +312,9 @@ class TaskPool:
         if not task.cancelled() and (exc := task.exception()) is not None:
             logger.error("Pool job failed: %r", exc)
 
-    async def _close_stream(self, items: AsyncGenerator[Any, None], tasks: Iterable[asyncio.Task[Any]]) -> None:
+    async def _close_stream(
+        self, items: AsyncGenerator[Any, None], tasks: Iterable[asyncio.Task[Any]]
+    ) -> None:
         """Stop a `map`/`as_completed`: cancel its jobs, then close its source."""
         tasks = tuple(tasks)
         self._cancel_all(tasks)

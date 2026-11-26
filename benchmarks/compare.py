@@ -1,5 +1,4 @@
 import asyncio
-import time
 from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 
@@ -7,6 +6,7 @@ import aiometer
 from aiostream import stream
 
 from tuskpool import TaskPool
+
 
 ITEMS = 2000
 LIMIT = 10
@@ -49,7 +49,7 @@ async def tuskpool_as_completed(probe: Probe, source: Any) -> None:
         await probe.consume_slowly(pool.as_completed(probe.job, source))
 
 
-def aiostream_map(ordered: bool) -> Callable[[Probe, Any], Awaitable[None]]:
+def aiostream_map(*, ordered: bool) -> Callable[[Probe, Any], Awaitable[None]]:
     async def run(probe: Probe, source: Any) -> None:
         mapped = stream.map(stream.iterate(source), probe.job, task_limit=LIMIT, ordered=ordered)
         async with mapped.stream() as results:
@@ -74,14 +74,16 @@ async def aiometer_run_on_each(probe: Probe, source: Any) -> None:
 CASES: list[tuple[str, Callable[[Probe, Any], Awaitable[None]], bool]] = [
     ("tuskpool `TaskPool.map`", tuskpool_map, True),
     ("tuskpool `TaskPool.as_completed`", tuskpool_as_completed, True),
-    ("aiostream `stream.map` (ordered)", aiostream_map(True), True),
-    ("aiostream `stream.map` (unordered)", aiostream_map(False), True),
+    ("aiostream `stream.map` (ordered)", aiostream_map(ordered=True), True),
+    ("aiostream `stream.map` (unordered)", aiostream_map(ordered=False), True),
     ("aiometer `amap`", aiometer_amap, True),
     ("aiometer `run_on_each`", aiometer_run_on_each, False),
 ]
 
 
-async def run_case(run: Callable[[Probe, Any], Awaitable[None]], make_source: Callable[[Probe], Any]) -> Probe:
+async def run_case(
+    run: Callable[[Probe, Any], Awaitable[None]], make_source: Callable[[Probe], Any]
+) -> Probe:
     probe = Probe()
     await run(probe, make_source(probe))
     return probe
@@ -97,9 +99,10 @@ async def main() -> None:
             probe = await run_case(run, lambda p: p.generator())
         except TypeError:
             accepts_generator = False
-            probe = await run_case(run, lambda p: list(range(ITEMS)))
+            probe = await run_case(run, lambda _: list(range(ITEMS)))
         ahead = str(probe.jobs_ahead) if has_results else "n/a (no results)"
-        print(f"| {name} | {'yes' if accepts_generator else 'no, needs a list'} | {probe.peak} | {ahead} |")
+        accepts = "yes" if accepts_generator else "no, needs a list"
+        print(f"| {name} | {accepts} | {probe.peak} | {ahead} |")
 
 
 asyncio.run(main())

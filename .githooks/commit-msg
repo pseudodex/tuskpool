@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+# commit-msg hook: Conventional Commits 1.0.0, sole authorship.
+# https://www.conventionalcommits.org/en/v1.0.0/#specification
+msg_file="$1"
+subject="$(head -n 1 "$msg_file")"
+
+case "$subject" in
+  Merge\ *|Revert\ \"*|fixup!\ *|squash!\ *) exit 0 ;;
+esac
+
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .+'
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+  echo "commit rejected: use Conventional Commits, e.g. 'feat(api): add invoice totals'" >&2
+  echo "  types: feat fix docs style refactor perf test build ci chore revert" >&2
+  exit 1
+fi
+
+if [ "${#subject}" -gt 72 ]; then
+  echo "commit rejected: header is ${#subject} characters, keep it at 72 or fewer" >&2
+  exit 1
+fi
+
+robot="$(printf '\360\237\244\226')"
+if grep -Ev '^#' "$msg_file" | grep -Eiq "^(co-authored-by|signed-off-by):|generated (with|by)|$robot"; then
+  echo "commit rejected: remove co-author, sign-off and generated-by lines (sole authorship)" >&2
+  exit 1
+fi

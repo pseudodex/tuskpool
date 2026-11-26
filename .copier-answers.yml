@@ -1,0 +1,9 @@
+# Changes here will be overwritten by Copier. Do not edit by hand.
+_commit: v0.6.1-3-gde91804
+_src_path: ../templates
+adopt: true
+concurrency: async
+description: An asyncio task pool with capped concurrency and bounded memory.
+kind: library
+language: python
+project_name: tuskpool

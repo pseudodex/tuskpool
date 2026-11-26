@@ -29,28 +29,147 @@ Homepage = "https://github.com/pseudodex/tuskpool"
 Issues = "https://github.com/pseudodex/tuskpool/issues"
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8",
-    "pytest-asyncio>=0.24",
-    "pytest-cov>=5",
-    "pytest-timeout>=2.3",
-    "mypy>=1.10",
-]
 bench = [
     "aiometer>=1.0",
     "aiostream>=0.6",
 ]
 
+[dependency-groups]
+dev = [
+    "ruff",
+    "pyright",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5",
+    "pytest-timeout>=2.3",
+    "import-linter",
+    "pre-commit",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/tuskpool"]
 
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle (PEP 8)
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade: List->list, Optional[X]->X | None, PEP 695
+    "ANN",      # require annotations
+    "ASYNC",    # blocking calls in async code
+    "B",        # bugbear
+    "A",        # shadowing builtins
+    "C4",       # comprehensions
+    "C90",      # complexity (mccabe)
+    "SIM",      # simplify
+    "PL",       # pylint: max-args, max-statements, magic values
+    "RET",      # return consistency
+    "TRY",      # exception handling
+    "BLE",      # blind except
+    "EM",       # exception message formatting
+    "FBT",      # boolean trap (flag parameters)
+    "PTH",      # pathlib
+    "T20",      # no print
+    "LOG", "G", # logging: getLogger(__name__), lazy %s arguments instead of f-strings
+    "S",        # security
+    "PT",       # pytest style
+    "ARG",      # unused arguments
+    "ERA",      # commented-out code
+    "TC",       # type-checking-only imports
+    "RUF",      # ruff-specific
+    "PERF",     # performance anti-patterns
+    "DTZ",      # naive datetimes
+    "ISC",      # implicit string concatenation
+    "TID",      # banned relative imports
+]
+ignore = [
+    "COM812", "ISC001",  # clash with the formatter
+    "TRY003",         # long messages in exceptions are fine with EM rules on
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.pylint]
+max-args = 4          # 3 params + self; group more into a dataclass
+max-statements = 20
+max-branches = 8
+max-returns = 4
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2  # two empty lines between the imports and the first constant, function or class
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.environ".msg = "Read the environment through Settings only."
+"os.getenv".msg = "Read the environment through Settings only."
+"dotenv".msg = "Settings reads .env; do not use python-dotenv."
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "ANN", "PLR2004", "ARG", "FBT", "TID251"]
+"benchmarks/**" = ["T201", "ANN"]  # scripts that print their results
+
+# ---------------------------------------------------------------- pyright
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+
+# ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config --cov=tuskpool --cov-report=term-missing"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests"]
 timeout = 30
 filterwarnings = ["error"]
 
-[tool.mypy]
-strict = true
-files = ["src"]
+# ---------------------------------------------------------------- coverage (fixed at 100%)
+[tool.coverage.run]
+branch = true
+source = ["tuskpool"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = ["if __name__ == .__main__.:"]
+
+# ---------------------------------------------------------------- import-linter
+[tool.importlinter]
+root_package = "tuskpool"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers: pool -> services -> domain | errors"
+type = "layers"
+layers = [
+    "tuskpool.pool",
+    "tuskpool.services",
+    "tuskpool.domain | tuskpool.errors",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain is pure (no I/O or framework libraries)"
+type = "forbidden"
+source_modules = ["tuskpool.domain"]
+forbidden_modules = [
+    "asyncio", "logging",
+    "requests", "httpx", "sqlalchemy", "sqlite3", "fastapi", "nicegui", "reflex", "click", "typer",
+    "psycopg", "asyncpg", "pymysql", "aiomysql", "aiosqlite",
+]

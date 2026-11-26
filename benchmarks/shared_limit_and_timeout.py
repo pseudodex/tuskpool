@@ -6,6 +6,7 @@ from aiostream import stream
 
 from tuskpool import JobTimeout, TaskPool
 
+
 LIMIT = 10
 
 
@@ -77,8 +78,10 @@ async def seconds_until_stuck_job_stops_tuskpool() -> float:
 
 async def main() -> None:
     print(f"Two concurrent streams, limit {LIMIT}: peak concurrency")
-    print(f"  aiostream (task_limit={LIMIT} per stream): {await peak_concurrency(two_aiostream_streams)}")
-    print(f"  tuskpool (one pool of {LIMIT}):            {await peak_concurrency(two_tuskpool_streams)}")
+    aiostream_peak = await peak_concurrency(two_aiostream_streams)
+    tuskpool_peak = await peak_concurrency(two_tuskpool_streams)
+    print(f"  aiostream (task_limit={LIMIT} per stream): {aiostream_peak}")
+    print(f"  tuskpool (one pool of {LIMIT}):            {tuskpool_peak}")
     print("One stuck job among fast ones, timeout 0.5 s: seconds until it is stopped")
     print(f"  aiostream `timeout` operator: {await seconds_until_stuck_job_stops_aiostream():.1f}")
     print(f"  tuskpool `timeout=0.5`:       {await seconds_until_stuck_job_stops_tuskpool():.1f}")

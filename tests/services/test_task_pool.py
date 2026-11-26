@@ -2,7 +2,7 @@ import asyncio
 import gc
 import logging
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from contextlib import aclosing
 from typing import Any
 
@@ -27,7 +27,8 @@ async def no_unhandled_loop_errors():
 def assert_idle(pool: TaskPool) -> None:
     """No job alive and every slot handed back."""
     assert pool.active == 0
-    assert pool._slots._value == pool._max_workers
+    # pyright ignore reason: a leaked slot is not observable through the public API.
+    assert pool._slots._value == pool._max_workers  # pyright: ignore[reportPrivateUsage]
 
 
 class Probe:
@@ -74,7 +75,23 @@ async def collect(stream: AsyncIterator[Any]) -> list[Any]:
 STREAMS = ["map", "as_completed"]
 
 
-def stream_of(pool: TaskPool, name: str, fn: Any, source: Any) -> AsyncIterator[Any]:
+def list_source(_: Probe, n: int) -> list[int]:
+    return list(range(n))
+
+
+def tuple_source(_: Probe, n: int) -> tuple[int, ...]:
+    return tuple(range(n))
+
+
+def range_source(_: Probe, n: int) -> range:
+    return range(n)
+
+
+def generator_source(_: Probe, n: int) -> Iterator[int]:
+    return (i for i in range(n))
+
+
+def stream_of(pool: TaskPool, name: str, fn: Any, source: Any) -> AsyncGenerator[Any, None]:
     return getattr(pool, name)(fn, source)
 
 
@@ -91,7 +108,13 @@ class TestConstruction:
 
     async def test_defaults_and_initial_stats(self) -> None:
         pool = TaskPool(3)
-        assert (pool.submitted, pool.completed, pool.failed, pool.timed_out, pool.active) == (0, 0, 0, 0, 0)
+        assert (pool.submitted, pool.completed, pool.failed, pool.timed_out, pool.active) == (
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
         assert_idle(pool)
 
     async def test_timeout_none_is_allowed(self) -> None:
@@ -159,9 +182,12 @@ class TestCreateTask:
         await pool.join()
         assert_idle(pool)
 
-    async def test_failed_job_is_counted_logged_and_frees_its_slot(self, caplog: pytest.LogCaptureFixture) -> None:
+    async def test_failed_job_is_counted_logged_and_frees_its_slot(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         async def boom() -> None:
-            raise ValueError("boom")
+            msg = "boom"
+            raise ValueError(msg)
 
         caplog.set_level(logging.ERROR, logger="tuskpool")
         async with TaskPool(1) as pool:
@@ -194,7 +220,9 @@ class TestCreateTask:
             await pool.join()
         assert_idle(pool)
 
-    async def test_non_awaitable_function_counts_as_failure(self, caplog: pytest.LogCaptureFixture) -> None:
+    async def test_non_awaitable_function_counts_as_failure(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         caplog.set_level(logging.ERROR, logger="tuskpool")
         async with TaskPool(1) as pool:
             task = await pool.create_task(lambda: 1)  # type: ignore[arg-type]
@@ -252,12 +280,12 @@ class TestStreams:
     @pytest.mark.parametrize(
         "make_source",
         [
-            pytest.param(lambda p, n: list(range(n)), id="list"),
-            pytest.param(lambda p, n: tuple(range(n)), id="tuple"),
-            pytest.param(lambda p, n: range(n), id="range"),
-            pytest.param(lambda p, n: (i for i in range(n)), id="generator"),
-            pytest.param(lambda p, n: p.sync_source(n), id="sync-generator"),
-            pytest.param(lambda p, n: p.source(n), id="async-generator"),
+            pytest.param(list_source, id="list"),
+            pytest.param(tuple_source, id="tuple"),
+            pytest.param(range_source, id="range"),
+            pytest.param(generator_source, id="generator"),
+            pytest.param(Probe.sync_source, id="sync-generator"),
+            pytest.param(Probe.source, id="async-generator"),
         ],
     )
     async def test_accepts_sync_and_async_iterables(self, name: str, make_source: Any) -> None:
@@ -343,14 +371,13 @@ class TestStreams:
 
         async with TaskPool(3) as pool:
             async for blob in stream_of(pool, name, make, range(100)):
-                pass
-            del blob
+                del blob
             await pool.join()
             await asyncio.sleep(0)  # let the loop drop its references to finished tasks
             gc.collect()
             assert len(refs) == 100
             assert all(ref() is None for ref in refs), "the pool kept results alive"
-            assert not pool._tasks
+            assert not pool._tasks  # pyright: ignore[reportPrivateUsage] - internal leak check
 
     async def test_job_failure_reaches_the_consumer_and_cleans_up(self, name: str) -> None:
         gate = asyncio.Event()  # never set: blocked jobs can only end by being cancelled
@@ -358,7 +385,8 @@ class TestStreams:
 
         async def job(x: int) -> int:
             if x == 2:
-                raise ValueError("bad item")
+                msg = "bad item"
+                raise ValueError(msg)
             if x >= 3 or name == "as_completed":
                 await gate.wait()
             finished.append(x)
@@ -375,7 +403,9 @@ class TestStreams:
             assert finished == ([0, 1] if name == "map" else [])
         assert_idle(pool)
 
-    async def test_early_break_with_aclosing_cancels_jobs_and_closes_source(self, name: str) -> None:
+    async def test_early_break_with_aclosing_cancels_jobs_and_closes_source(
+        self, name: str
+    ) -> None:
         probe = Probe(delay=0.05)
         async with TaskPool(4) as pool:
             async with aclosing(stream_of(pool, name, probe.job, probe.source(10_000))) as stream:
@@ -411,7 +441,8 @@ class TestStreams:
         async def bad_source() -> AsyncIterator[int]:
             yield 1
             yield 2
-            raise RuntimeError("source blew up")
+            msg = "source blew up"
+            raise RuntimeError(msg)
 
         async with TaskPool(4) as pool:
             with pytest.raises(RuntimeError, match="source blew up"):
@@ -424,7 +455,8 @@ class TestStreams:
     async def test_sync_source_error_reaches_the_consumer(self, name: str) -> None:
         def bad_source():
             yield 1
-            raise RuntimeError("sync source blew up")
+            msg = "sync source blew up"
+            raise RuntimeError(msg)
 
         async with TaskPool(2) as pool:
             with pytest.raises(RuntimeError, match="sync source blew up"):
@@ -480,7 +512,8 @@ class TestStreams:
     async def test_pool_closed_mid_stream(self, name: str) -> None:
         async with TaskPool(2) as pool:
             seen = 0
-            with pytest.raises(RuntimeError, match="closed"):
+            # The error comes from iterating while the loop body closes the pool.
+            with pytest.raises(RuntimeError, match="closed"):  # noqa: PT012
                 async for _ in stream_of(pool, name, Probe().job, range(100)):
                     seen += 1
                     if seen == 3:
@@ -534,14 +567,16 @@ class TestMapOrdering:
     async def test_failure_is_raised_when_its_turn_comes(self) -> None:
         async def job(i: int) -> int:
             if i == 2:
-                raise ValueError("two")
+                msg = "two"
+                raise ValueError(msg)
             return i
 
         got: list[int] = []
         async with TaskPool(5) as pool:
-            with pytest.raises(ValueError, match="two"):
+            # The error comes from iterating the stream.
+            with pytest.raises(ValueError, match="two"):  # noqa: PT012
                 async for value in pool.map(job, range(5)):
-                    got.append(value)
+                    got.append(value)  # noqa: PERF401 - must keep results seen before the error
         assert got == [0, 1]
 
 
@@ -558,7 +593,7 @@ class TestAsCompletedOrdering:
 
             async def consume() -> None:
                 async for value in pool.as_completed(job, range(4)):
-                    order.append(value)
+                    order.append(value)  # noqa: PERF401 - read while the stream is running
 
             consumer = asyncio.create_task(consume())
             for i in (2, 0, 3, 1):
@@ -580,11 +615,13 @@ class TestAsCompletedOrdering:
 
             async def consume() -> None:
                 async for value in pool.as_completed(job, range(10)):
-                    got.append(value)
+                    got.append(value)  # noqa: PERF401 - read while the stream is running
 
             consumer = asyncio.create_task(consume())
             await asyncio.sleep(0.05)
-            assert sorted(got) == list(range(1, 10)), "item 0 is stuck but must not block the others"
+            assert sorted(got) == list(range(1, 10)), (
+                "item 0 is stuck but must not block the others"
+            )
             assert not consumer.done()
             gate.set()
             await consumer
@@ -614,7 +651,8 @@ class TestTimeout:
 
     async def test_jobs_own_timeout_error_is_a_plain_failure(self) -> None:
         async def own() -> None:
-            raise TimeoutError("mine")
+            msg = "mine"
+            raise TimeoutError(msg)
 
         async with TaskPool(1, timeout=1) as pool:
             task = await pool.create_task(own)
@@ -639,7 +677,8 @@ class TestTimeout:
 
     async def test_no_timeout_lets_the_job_own_timeout_through(self) -> None:
         async def own() -> None:
-            raise TimeoutError("mine")
+            msg = "mine"
+            raise TimeoutError(msg)
 
         async with TaskPool(1) as pool:
             task = await pool.create_task(own)
@@ -771,7 +810,7 @@ class TestShutdown:
         await pool.create_task(job)
         await pool.shutdown(wait=False)
         assert not finished.is_set()
-        assert pool.closed if hasattr(pool, "closed") else pool._closed
+        assert pool._closed  # pyright: ignore[reportPrivateUsage] - no public accessor
         await asyncio.wait_for(finished.wait(), 1)
         await pool.join()
         assert_idle(pool)
@@ -838,11 +877,15 @@ class TestContextManager:
 
     async def test_exit_on_error_cancels_running_jobs_and_propagates(self) -> None:
         task: asyncio.Task[Any] | None = None
-        with pytest.raises(KeyError):
-            async with TaskPool(2) as pool:
+        pool = TaskPool(2)
+        # The error must be raised inside the pool block.
+        with pytest.raises(KeyError):  # noqa: PT012
+            async with pool:
                 task = await pool.create_task(asyncio.sleep, 10)
-                raise KeyError("body failed")
-        assert task is not None and task.cancelled()
+                msg = "body failed"
+                raise KeyError(msg)
+        assert task is not None
+        assert task.cancelled()
         assert_idle(pool)
 
     async def test_exit_closes_the_pool(self) -> None:
@@ -853,7 +896,7 @@ class TestContextManager:
 
 
 class TestStats:
-    async def test_counters_add_up_for_a_mixed_workload(self) -> None:
+    async def test_counters_add_up_for_a_mixed_workload(self) -> None:  # noqa: PLR0915 - one scenario
         gate = asyncio.Event()
 
         async def ok() -> str:
@@ -869,12 +912,8 @@ class TestStats:
             await gate.wait()
 
         pool = TaskPool(20, timeout=0.05)
-        for _ in range(5):
-            await pool.create_task(ok)
-        for _ in range(3):
-            await pool.create_task(boom)
-        for _ in range(2):
-            await pool.create_task(slow)
+        for job in [ok] * 5 + [boom] * 3 + [slow] * 2:
+            await pool.create_task(job)
         doomed = [await pool.create_task(cancelme) for _ in range(2)]
         await asyncio.sleep(0)
         for task in doomed:
@@ -907,7 +946,8 @@ class TestStats:
 
         async with TaskPool(5) as pool:
             got = 0
-            with pytest.raises(ValueError):
+            # The error comes from iterating the stream.
+            with pytest.raises(ValueError, match=r"^\d+$"):  # noqa: PT012
                 async for _ in pool.map(job, range(1, 100)):
                     got += 1
         assert pool.failed >= 1
@@ -925,9 +965,7 @@ class TestSlotAccounting:
             return i
 
         pool = TaskPool(7, timeout=0.05)
-        tasks: list[asyncio.Task[int]] = []
-        for i in range(400):
-            tasks.append(await pool.create_task(job, i))
+        _tasks = [await pool.create_task(job, i) for i in range(400)]
         await pool.join()
         assert_idle(pool)
         assert pool.submitted == 400
@@ -950,7 +988,7 @@ class TestSlotAccounting:
 
         async with TaskPool(3) as pool:
             for name in STREAMS:
-                with pytest.raises(ValueError):
+                with pytest.raises(ValueError, match=r"^\d+$"):
                     await collect(stream_of(pool, name, boom, range(50)))
                 assert_idle(pool)
 
@@ -962,7 +1000,8 @@ class TestSpawnFailure:
 
         def broken_factory(_loop: Any, coro: Any, **_kwargs: Any) -> Any:
             coro.close()  # avoid a "never awaited" warning
-            raise RuntimeError("cannot create task")
+            msg = "cannot create task"
+            raise RuntimeError(msg)
 
         pool = TaskPool(1)
         loop.set_task_factory(broken_factory)
@@ -1028,4 +1067,5 @@ class TestAsAsyncIter:
                 await anext(it)
 
     async def test_empty(self) -> None:
-        assert [x async for x in as_async_iter([])] == []
+        empty: list[int] = []
+        assert [x async for x in as_async_iter(empty)] == []
